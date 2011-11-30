@@ -100,6 +100,7 @@ static int config_insert(server *srv) {
 		{ "ssl.verifyclient.depth",      NULL, T_CONFIG_SHORT,   T_CONFIG_SCOPE_SERVER },     /* 58 */
 		{ "ssl.verifyclient.username",   NULL, T_CONFIG_STRING,  T_CONFIG_SCOPE_SERVER },     /* 59 */
 		{ "ssl.verifyclient.exportcert", NULL, T_CONFIG_BOOLEAN, T_CONFIG_SCOPE_SERVER },     /* 60 */
+		{ "ssl.honor-cipher-order",      NULL, T_CONFIG_BOOLEAN, T_CONFIG_SCOPE_SERVER },     /* 61 */
 		{ "server.host",                 "use server.bind instead", T_CONFIG_DEPRECATED, T_CONFIG_SCOPE_UNSET },
 		{ "server.docroot",              "use server.document-root instead", T_CONFIG_DEPRECATED, T_CONFIG_SCOPE_UNSET },
 		{ "server.virtual-root",         "load mod_simple_vhost and use simple-vhost.server-root instead", T_CONFIG_DEPRECATED, T_CONFIG_SCOPE_UNSET },
@@ -168,6 +169,7 @@ static int config_insert(server *srv) {
 		s->max_write_idle = 360;
 		s->use_xattr     = 0;
 		s->is_ssl        = 0;
+		s->ssl_honor_cipher_order = 1;
 		s->ssl_use_sslv2 = 0;
 		s->use_ipv6      = 0;
 		s->defer_accept  = 0;
@@ -231,6 +233,7 @@ static int config_insert(server *srv) {
 
 		cv[47].destination = s->ssl_cipher_list;
 		cv[48].destination = &(s->ssl_use_sslv2);
+		cv[61].destination = &(s->ssl_honor_cipher_order);
 		cv[49].destination = &(s->etag_use_inode);
 		cv[50].destination = &(s->etag_use_mtime);
 		cv[51].destination = &(s->etag_use_size);
@@ -319,6 +322,7 @@ int config_setup_connection(server *srv, connection *con) {
 #endif
 	PATCH(ssl_ca_file);
 	PATCH(ssl_cipher_list);
+	PATCH(ssl_honor_cipher_order);
 	PATCH(ssl_use_sslv2);
 	PATCH(etag_use_inode);
 	PATCH(etag_use_mtime);
@@ -383,6 +387,8 @@ int config_patch_connection(server *srv, connection *con, comp_key_t comp) {
 #endif
 			} else if (buffer_is_equal_string(du->key, CONST_STR_LEN("ssl.ca-file"))) {
 				PATCH(ssl_ca_file);
+			} else if (buffer_is_equal_string(du->key, CONST_STR_LEN("ssl.honor-cipher-order"))) {
+				PATCH(ssl_honor_cipher_order);
 			} else if (buffer_is_equal_string(du->key, CONST_STR_LEN("ssl.use-sslv2"))) {
 				PATCH(ssl_use_sslv2);
 			} else if (buffer_is_equal_string(du->key, CONST_STR_LEN("ssl.cipher-list"))) {
