@@ -394,6 +394,7 @@ static int connection_handle_write_prepare(server *srv, connection *con) {
 	case 408:
 	case 411:
 	case 416:
+	case 423:
 	case 500:
 	case 501:
 	case 503:
@@ -458,6 +459,7 @@ static int connection_handle_write_prepare(server *srv, connection *con) {
 		/* fall through */
 	case 207:
 	case 200: /* class: header + body */
+	case 201:
 	case 301:
 	case 302:
 		break;

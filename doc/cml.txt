@@ -140,7 +140,7 @@ Don't forget: Webserver are built to send out static content, that is what they 
 
 The index.cml for this looks like: ::
 
-  output_content_type = "text/html"
+  output_contenttype = "text/html"
   
   cwd = request["CWD"]
    

@@ -118,8 +118,6 @@ static void daemonize(void) {
 	if (0 != fork()) exit(0);
 	
 	if (0 != chdir("/")) exit(0);
-	
-	umask(0);
 }
 #endif
 
@@ -218,6 +216,7 @@ static void server_free(server *srv) {
 	CLEAN(srvconf.event_handler);
 	CLEAN(srvconf.pid_file);
 	CLEAN(srvconf.modules_dir);
+	CLEAN(srvconf.network_backend);
 	
 	CLEAN(tmp_chunk_len);
 #undef CLEAN
@@ -256,6 +255,7 @@ static void server_free(server *srv) {
 	CLEAN(config_context);
 	CLEAN(config_touched);
 	CLEAN(status);
+	CLEAN(srvconf.upload_tempdirs);
 #undef CLEAN
 	
 	joblist_free(srv, srv->joblist);

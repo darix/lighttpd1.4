@@ -368,11 +368,53 @@ int http_request_parse(server *srv, connection *con) {
 				}
 				
 				con->request.http_method = r;
-				
-				if (0 == strncmp(proto, "HTTP/1.", sizeof("HTTP/1.") - 1)) {
-					if (proto[7] == '1') {
+			
+				/* 
+				 * RFC2616 says:
+				 *
+				 * HTTP-Version   = "HTTP" "/" 1*DIGIT "." 1*DIGIT
+				 *
+				 * */	
+				if (0 == strncmp(proto, "HTTP/", sizeof("HTTP/") - 1)) {
+					char * major = proto + sizeof("HTTP/") - 1;
+					char * minor = strchr(major, '.');
+					char *err = NULL;
+					int major_num = 0, minor_num = 0;
+
+					int invalid_version = 0;
+
+					if (NULL == minor || /* no dot */
+					    minor == major || /* no major */
+					    *(minor + 1) == '\0' /* no minor */) {
+						invalid_version = 1;
+					} else {
+						*minor = '\0';
+						major_num = strtol(major, &err, 10);
+
+						if (*err != '\0') invalid_version = 1;
+
+						*minor++ = '.';
+						minor_num = strtol(minor, &err, 10);
+
+						if (*err != '\0') invalid_version = 1;
+					}
+
+					if (invalid_version) {
+						con->http_status = 400;
+						con->keep_alive = 0;
+
+						if (srv->srvconf.log_request_header_on_error) {
+							log_error_write(srv, __FILE__, __LINE__, "s", "unknown protocol -> 400");
+							log_error_write(srv, __FILE__, __LINE__, "Sb",
+									"request-header:\n",
+									con->request.request);
+						}
+						return 0;
+					}
+
+					if (major_num == 1 && minor_num == 1) {
 						con->request.http_version = con->conf.allow_http11 ? HTTP_VERSION_1_1 : HTTP_VERSION_1_0;
-					} else if (proto[7] == '0') {
+					} else if (major_num == 1 && minor_num == 0) {
 						con->request.http_version = HTTP_VERSION_1_0;
 					} else { 
 						con->http_status = 505;
@@ -1003,12 +1045,11 @@ int http_request_parse(server *srv, connection *con) {
 	switch(con->request.http_method) {
 	case HTTP_METHOD_GET:
 	case HTTP_METHOD_HEAD:
-	case HTTP_METHOD_OPTIONS:
 		/* content-length is forbidden for those */
 		if (con_length_set && con->request.content_length != 0) {
 			/* content-length is missing */
 			log_error_write(srv, __FILE__, __LINE__, "s", 
-					"GET/HEAD/OPTIONS with content-length -> 400");
+					"GET/HEAD with content-length -> 400");
 
 			con->keep_alive = 0;
 			con->http_status = 400;
