@@ -503,6 +503,7 @@ buffer *buffer_init_string(const char *str) {
 }
 
 int buffer_is_empty(buffer *b) {
+	if (!b) return 1;
 	return (b->used == 0);
 }
 
@@ -574,7 +575,13 @@ int buffer_caseless_compare(const char *a, size_t a_len, const char *b, size_t b
 		}
 	}
 	
-	return 0;
+	/* all chars are the same, and the length match too
+	 *
+	 * they are the same */
+	if (a_len == b_len) return 0;
+
+	/* if a is shorter then b, then b is larger */
+	return (a_len - b_len);
 }
 
 
