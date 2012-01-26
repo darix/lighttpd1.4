@@ -817,6 +817,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 								
@@ -866,6 +867,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 							} else if (cmp > 0 && 0 == (cmp = buffer_caseless_compare(CONST_BUF_LEN(ds->key), CONST_STR_LEN("Expect")))) {
@@ -903,6 +905,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 							} else if (cmp > 0 && 0 == (cmp = buffer_caseless_compare(CONST_BUF_LEN(ds->key), CONST_STR_LEN("If-Modified-Since")))) {
@@ -925,6 +928,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 							} else if (cmp > 0 && 0 == (cmp = buffer_caseless_compare(CONST_BUF_LEN(ds->key), CONST_STR_LEN("If-None-Match")))) {
@@ -942,6 +946,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 							} else if (cmp > 0 && 0 == (cmp = buffer_caseless_compare(CONST_BUF_LEN(ds->key), CONST_STR_LEN("Range")))) {
@@ -965,6 +970,7 @@ int http_request_parse(server *srv, connection *con) {
 												"request-header:\n",
 												con->request.request);
 									}
+									array_insert_unique(con->request.headers, (data_unset *)ds);
 									return 0;
 								}
 							}
