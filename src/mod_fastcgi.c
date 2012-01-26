@@ -45,6 +45,12 @@
 #include <sys/wait.h>
 #endif
 
+#define FCGI_ENV_ADD_CHECK(ret, con) \
+	if (ret == -1) { \
+		con->http_status = 400; \
+		con->file_finished = 1; \
+		return -1; \
+	};
 
 /*
  * 
@@ -1579,6 +1585,21 @@ static int fcgi_env_add(buffer *env, const char *key, size_t key_len, const char
 	len += key_len > 127 ? 4 : 1;
 	len += val_len > 127 ? 4 : 1;
 	
+	if (env->used + len >= FCGI_MAX_LENGTH) {
+		/**
+		 * we can't append more headers, ignore it
+		 */
+		return -1;
+	}
+
+	/**
+	 * field length can be 31bit max
+	 *
+	 * HINT: this can't happen as FCGI_MAX_LENGTH is only 16bit
+	 */
+	if (key_len > 0x7fffffff) key_len = 0x7fffffff;
+	if (val_len > 0x7fffffff) val_len = 0x7fffffff;
+
 	buffer_prepare_append(env, len);
 	
 	if (key_len > 127) {
@@ -1608,6 +1629,8 @@ static int fcgi_env_add(buffer *env, const char *key, size_t key_len, const char
 }
 
 static int fcgi_header(FCGI_Header * header, unsigned char type, size_t request_id, int contentLength, unsigned char paddingLength) {
+	assert(contentLength <= FCGI_MAX_LENGTH);
+
 	header->version = FCGI_VERSION_1;
 	header->type = type;
 	header->requestIdB0 = request_id & 0xff;
@@ -1748,7 +1771,7 @@ static int fcgi_env_add_request_headers(server *srv, connection *con, plugin_dat
 			}
 			srv->tmp_buf->ptr[srv->tmp_buf->used++] = '\0';
 			
-			fcgi_env_add(p->fcgi_env, CONST_BUF_LEN(srv->tmp_buf), CONST_BUF_LEN(ds->value));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_BUF_LEN(srv->tmp_buf), CONST_BUF_LEN(ds->value)),con);
 		}
 	}
 	
@@ -1775,7 +1798,7 @@ static int fcgi_env_add_request_headers(server *srv, connection *con, plugin_dat
 			}
 			srv->tmp_buf->ptr[srv->tmp_buf->used++] = '\0';
 			
-			fcgi_env_add(p->fcgi_env, CONST_BUF_LEN(srv->tmp_buf), CONST_BUF_LEN(ds->value));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_BUF_LEN(srv->tmp_buf), CONST_BUF_LEN(ds->value)), con);
 		}
 	}
 	
@@ -1819,10 +1842,10 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 	buffer_prepare_copy(p->fcgi_env, 1024);
 
 
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_SOFTWARE"), CONST_STR_LEN(PACKAGE_NAME"/"PACKAGE_VERSION));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_SOFTWARE"), CONST_STR_LEN(PACKAGE_NAME"/"PACKAGE_VERSION)),con)
 	
 	if (con->server_name->used) {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_NAME"), CONST_BUF_LEN(con->server_name));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_NAME"), CONST_BUF_LEN(con->server_name)),con)
 	} else {
 #ifdef HAVE_IPV6
 		s = inet_ntop(srv_sock->addr.plain.sa_family, 
@@ -1833,10 +1856,10 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 #else
 		s = inet_ntoa(srv_sock->addr.ipv4.sin_addr);
 #endif
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_NAME"), s, strlen(s));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_NAME"), s, strlen(s)),con)
 	}
 	
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("GATEWAY_INTERFACE"), CONST_STR_LEN("CGI/1.1"));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("GATEWAY_INTERFACE"), CONST_STR_LEN("CGI/1.1")),con)
 	
 	ltostr(buf, 
 #ifdef HAVE_IPV6
@@ -1846,7 +1869,7 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 #endif
 	       );
 	
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_PORT"), buf, strlen(buf));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_PORT"), buf, strlen(buf)),con)
 	
 	/* get the server-side of the connection to the client */
 	our_addr_len = sizeof(our_addr);
@@ -1856,7 +1879,7 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 	} else {
 		s = inet_ntop_cache_get_ip(srv, &(our_addr));
 	}
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_ADDR"), s, strlen(s));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_ADDR"), s, strlen(s)),con)
 	
 	ltostr(buf, 
 #ifdef HAVE_IPV6
@@ -1866,14 +1889,14 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 #endif
 	       );
 	
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_PORT"), buf, strlen(buf));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_PORT"), buf, strlen(buf)),con)
 	
 	s = inet_ntop_cache_get_ip(srv, &(con->dst_addr));
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_ADDR"), s, strlen(s));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_ADDR"), s, strlen(s)),con)
 	
 	if (!buffer_is_empty(con->authed_user)) {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_USER"),
-			     CONST_BUF_LEN(con->authed_user));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REMOTE_USER"),
+			     CONST_BUF_LEN(con->authed_user)),con);
 	}
 	
 	if (con->request.content_length > 0 && host->mode != FCGI_AUTHORIZER) {
@@ -1881,7 +1904,7 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 		
 		/* request.content_length < SSIZE_MAX, see request.c */
 		ltostr(buf, con->request.content_length);
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("CONTENT_LENGTH"), buf, strlen(buf));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("CONTENT_LENGTH"), buf, strlen(buf)),con);
 	}
 
 	if (host->mode != FCGI_AUTHORIZER) {
@@ -1892,10 +1915,10 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 		 * For AUTHORIZER mode these headers should be omitted.
 		 */
 
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_NAME"), CONST_BUF_LEN(con->uri.path));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_NAME"), CONST_BUF_LEN(con->uri.path)),con)
 		
 		if (!buffer_is_empty(con->request.pathinfo)) {
-			fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_INFO"), CONST_BUF_LEN(con->request.pathinfo));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_INFO"), CONST_BUF_LEN(con->request.pathinfo)),con)
 			
 			/* PATH_TRANSLATED is only defined if PATH_INFO is set */
 			
@@ -1905,9 +1928,9 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 				buffer_copy_string_buffer(p->path, con->physical.doc_root);
 			}
 			buffer_append_string_buffer(p->path, con->request.pathinfo);
-			fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_TRANSLATED"), CONST_BUF_LEN(p->path));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_TRANSLATED"), CONST_BUF_LEN(p->path)),con)
 		} else {
-			fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_INFO"), CONST_STR_LEN(""));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("PATH_INFO"), CONST_STR_LEN("")),con)
 		}
 	}
 
@@ -1928,8 +1951,8 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 		buffer_copy_string_buffer(p->path, host->docroot);
 		buffer_append_string_buffer(p->path, con->uri.path);
 		
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_FILENAME"), CONST_BUF_LEN(p->path));
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("DOCUMENT_ROOT"), CONST_BUF_LEN(host->docroot));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_FILENAME"), CONST_BUF_LEN(p->path)),con)
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("DOCUMENT_ROOT"), CONST_BUF_LEN(host->docroot)),con)
 	} else {
 		buffer_copy_string_buffer(p->path, con->physical.path);
 		
@@ -1941,8 +1964,8 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 			buffer_append_string_buffer(p->path, con->request.pathinfo);
 		}
 		
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_FILENAME"), CONST_BUF_LEN(p->path));
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("DOCUMENT_ROOT"), CONST_BUF_LEN(con->physical.doc_root));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SCRIPT_FILENAME"), CONST_BUF_LEN(p->path)),con)
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("DOCUMENT_ROOT"), CONST_BUF_LEN(con->physical.doc_root)),con)
 	}
 
 	if (host->strip_request_uri->used > 1) {
@@ -1968,34 +1991,34 @@ static int fcgi_create_env(server *srv, handler_ctx *hctx, size_t request_id) {
 					con->request.orig_uri->ptr + (host->strip_request_uri->used - 2),
 					con->request.orig_uri->used - (host->strip_request_uri->used - 2));
 		} else {
-			fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_URI"), CONST_BUF_LEN(con->request.orig_uri));
+			FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_URI"), CONST_BUF_LEN(con->request.orig_uri)),con)
 		}
 	} else {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_URI"), CONST_BUF_LEN(con->request.orig_uri));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_URI"), CONST_BUF_LEN(con->request.orig_uri)),con)
 	}
 	if (!buffer_is_equal(con->request.uri, con->request.orig_uri)) {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REDIRECT_URI"), CONST_BUF_LEN(con->request.uri));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REDIRECT_URI"), CONST_BUF_LEN(con->request.uri)),con)
 	}
 	if (!buffer_is_empty(con->uri.query)) {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("QUERY_STRING"), CONST_BUF_LEN(con->uri.query));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("QUERY_STRING"), CONST_BUF_LEN(con->uri.query)),con)
 	} else {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("QUERY_STRING"), CONST_STR_LEN(""));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("QUERY_STRING"), CONST_STR_LEN("")),con)
 	}
 	
 	s = get_http_method_name(con->request.http_method);
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_METHOD"), s, strlen(s));
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REDIRECT_STATUS"), CONST_STR_LEN("200")); /* if php is compiled with --force-redirect */
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REQUEST_METHOD"), s, strlen(s)),con)
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("REDIRECT_STATUS"), CONST_STR_LEN("200")),con) /* if php is compiled with --force-redirect */
 	s = get_http_version_name(con->request.http_version);
-	fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_PROTOCOL"), s, strlen(s));
+	FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("SERVER_PROTOCOL"), s, strlen(s)),con)
 	
 #ifdef USE_OPENSSL
 	if (srv_sock->is_ssl) {
-		fcgi_env_add(p->fcgi_env, CONST_STR_LEN("HTTPS"), CONST_STR_LEN("on"));
+		FCGI_ENV_ADD_CHECK(fcgi_env_add(p->fcgi_env, CONST_STR_LEN("HTTPS"), CONST_STR_LEN("on")),con)
 	}
 #endif
 	
 	
-	fcgi_env_add_request_headers(srv, con, p);
+	FCGI_ENV_ADD_CHECK(fcgi_env_add_request_headers(srv, con, p), con);
 	
 	fcgi_header(&(header), FCGI_PARAMS, request_id, p->fcgi_env->used, 0);
 	buffer_append_memory(b, (const char *)&header, sizeof(header));
@@ -2964,10 +2987,8 @@ static handler_t fcgi_write_request(server *srv, handler_ctx *hctx) {
 		}
 		
 		/* fall through */
-		fcgi_create_env(srv, hctx, hctx->request_id);
-		
+		if (-1 == fcgi_create_env(srv, hctx, hctx->request_id)) return HANDLER_ERROR;
 		fcgi_set_state(srv, hctx, FCGI_STATE_WRITE);
-		
 		/* fall through */
 	case FCGI_STATE_WRITE:
 		ret = srv->network_backend_write(srv, con, hctx->fd, hctx->wb); 
@@ -3178,7 +3199,7 @@ SUBREQUEST_FUNC(mod_fastcgi_handle_subrequest) {
 			
 			buffer_reset(con->physical.path);
 			con->mode = DIRECT;
-			con->http_status = 503;
+			if (con->http_status != 400) con->http_status = 503;
 			joblist_append(srv, con); /* really ? */
 			
 			return HANDLER_FINISHED;
