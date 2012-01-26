@@ -415,7 +415,6 @@ typedef struct {
 
 #ifdef USE_OPENSSL
 	SSL *ssl;
-	buffer *ssl_error_want_reuse_buffer;
 #endif
 	/* etag handling */
 	etag_flags_t etag_flags;
