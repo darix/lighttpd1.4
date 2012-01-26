@@ -1230,6 +1230,16 @@ connection *connection_accept(server *srv, server_socket *srv_socket) {
 	socklen_t cnt_len;
 	/* accept it and register the fd */
 	
+	/**
+	 * check if we can still open a new connections
+	 *
+	 * see #1216
+	 */
+
+	if (srv->conns->used >= srv->max_conns) {
+		return NULL;
+	}
+
 	cnt_len = sizeof(cnt_addr);
 
 	if (-1 == (cnt = accept(srv_socket->fd, (struct sockaddr *) &cnt_addr, &cnt_len))) {
@@ -1660,6 +1670,9 @@ int connection_state_machine(server *srv, connection *con) {
 			
 			srv->con_closed++;
 			
+			break;
+		case EMFILE:
+			/* out of fds */
 			break;
 		default:
 			log_error_write(srv, __FILE__, __LINE__, "sdd", 
