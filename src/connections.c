@@ -196,6 +196,7 @@ static int connection_handle_read(server *srv, connection *con) {
 	int toread;
 #ifdef USE_OPENSSL
 	server_socket *srv_sock = con->srv_socket;
+	ERR_clear_error();
 #endif
 
 	b = chunkqueue_get_append_buffer(con->read_queue);
@@ -1613,21 +1614,50 @@ int connection_state_machine(server *srv, connection *con) {
 			}
 #ifdef USE_OPENSSL
 			if (srv_sock->is_ssl) {
-				int ret;
+				int ret, ssl_r;
+				unsigned long err;
+				ERR_clear_error();
 				switch ((ret = SSL_shutdown(con->ssl))) {
 				case 1:
 					/* ok */
 					break;
 				case 0:
-					SSL_shutdown(con->ssl);
-					break;
+					ERR_clear_error();
+					if (-1 != (ret = SSL_shutdown(con->ssl))) break;
+
+					/* fall through */
 				default:
-					log_error_write(srv, __FILE__, __LINE__, "sds", "SSL:", 
-							SSL_get_error(con->ssl, ret), 
-							ERR_error_string(ERR_get_error(), NULL));
-					return -1;
+					switch ((ssl_r = SSL_get_error(con->ssl, ret))) {
+					case SSL_ERROR_WANT_WRITE:
+					case SSL_ERROR_WANT_READ:
+						break;
+					case SSL_ERROR_SYSCALL:
+						/* perhaps we have error waiting in our error-queue */
+						if (0 != (err = ERR_get_error())) {
+							do {
+								log_error_write(srv, __FILE__, __LINE__, "sdds", "SSL:",
+										ssl_r, ret,
+										ERR_error_string(err, NULL));
+							} while((err = ERR_get_error()));
+						} else {
+							log_error_write(srv, __FILE__, __LINE__, "sddds", "SSL (error):",
+									ssl_r, ret, errno,
+									strerror(errno));
+						}
+	
+						break;
+					default:
+						while((err = ERR_get_error())) {
+							log_error_write(srv, __FILE__, __LINE__, "sdds", "SSL:",
+									ssl_r, ret,
+									ERR_error_string(err, NULL));
+						}
+	
+						break;
+					}
 				}
 			}
+			ERR_clear_error();
 #endif
 			
 			switch(con->mode) {

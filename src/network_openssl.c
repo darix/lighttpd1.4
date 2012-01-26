@@ -84,7 +84,7 @@ int network_write_chunkqueue_openssl(server *srv, connection *con, SSL *ssl, chu
 			 *        repeated with the same arguments.
 			 * 
 			 */
-			
+			ERR_clear_error();
 			if ((r = SSL_write(ssl, offset, toSend)) <= 0) {
 				unsigned long err;
 
@@ -185,7 +185,7 @@ int network_write_chunkqueue_openssl(server *srv, connection *con, SSL *ssl, chu
 				s = local_send_buffer;
 			
 				close(ifd);
-			
+				ERR_clear_error();
 				if ((r = SSL_write(ssl, s, toSend)) <= 0) {
 					unsigned long err;
 
